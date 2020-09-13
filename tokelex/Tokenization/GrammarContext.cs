@@ -2,7 +2,7 @@
 using System.Collections;
 using System.Collections.Generic;
 
-using TokenMatchHandler = System.Func<TokenMatchInfo, MatchingResolution>;
+using TokenMatchHandler = System.Action<TokenMatchInfo, TokenizerContext>;
 
 public class RegexPoweredGrammarContext {
     List<RegexAndHandler> sources;

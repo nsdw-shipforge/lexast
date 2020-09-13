@@ -4,68 +4,46 @@ using System.Collections.Generic;
 using System.Runtime.Serialization;
 
 public class TokenizerEngine {
-    private Stack<RegexPoweredGrammarContext> grammars = new Stack<RegexPoweredGrammarContext>();
+    TokenizerContext ctx;
     public TokenizerEngine(RegexPoweredGrammarContext startingGrammarCtx) {
-        this.grammars.Push(startingGrammarCtx);
+        ctx = new TokenizerContext();
+        ctx.Lexers.Push(startingGrammarCtx);
     }
     public Token[] Tokenize(string input) {
-        var ctx = new TokenizerContext();
         ctx.Input = input;
-
-        List<Token> output = new List<Token>();
 
         int i = 0; // TODO remove
         while(i<500000 && ctx.CurrentPosition < ctx.Input.Length ) {
             try {
                 i++;
                 
-                var match = grammars.Peek().MatchToken(ctx);
-                var resolution = match.Handler.Invoke(match);
+                var match = ctx.Lexers.Peek().MatchToken(ctx);
+                match.Handler.Invoke(match, ctx);
 
-                if(resolution.Advance) {
-                    ctx.CurrentPosition = match.EndsAt;
-                }
-
-                if(resolution.ExitGrammar) {
-                    if(grammars.Count <= 1) {
-                        // should we throw here? probably not. just for the sake of better composability
-                        // so that the current grammar doesn't have to worry about whether it's root
-                    } else {
-                        grammars.Pop();
-                    }
-                }
-                
-                // two possible use cases here:
-                // exitGrammar = false && switchToGrammar != null -> enter nested grammar
-                // exitGrammar = true && switchToGrammar != null -> replace current grammar
-                if(resolution.SwitchToGrammar != null) {
-                    grammars.Push(resolution.SwitchToGrammar);
-                }
-
-                if(resolution.Tokens != null) {
-                    output.AddRange(resolution.Tokens);
-                }
             } catch(System.Exception e) {
-                throw new TokenizationException(e, grammars.Peek().Description);
+                throw new TokenizationException(e, ctx, ctx.Lexers.Peek().Description);
             }
         }
 
-        return output.ToArray();
+        return ctx.Tokens.ToArray();
     }
 }
 
 public class TokenizationException : System.Exception {
     private readonly GrammarContextDescription source;
+    private readonly TokenizerContext ctx;
 
-    public TokenizationException(Exception cause, GrammarContextDescription source) : base(GetMsg(source), cause) {
+    public TokenizationException(Exception cause, TokenizerContext ctx, GrammarContextDescription source) : base(GetMsg(source, ctx), cause) {
         this.source = source;
+        this.ctx = ctx;
     }
 
-    private static string GetMsg(GrammarContextDescription src) {
+    private static string GetMsg(GrammarContextDescription src, TokenizerContext ctx) {
         return 
             "Encountered an error during tokenization!\n"+
             "  | -> was in token grammar context: "+src.name+"\n"+
             "  | -> with compoundRegex: "+src.compoundRegex+"\n"+
+            "  | -> having parsed these tokens: "+String.Join(", ", ctx.Tokens)+"\n"+
             "  | -> internally caused by...\n";
     }
 }
@@ -82,44 +60,5 @@ public class Token {
     public override string ToString()
     {
         return GetType().Name+"["+Value.Replace("\n", "\\n")+"]";
-    }
-}
-
-public class MatchingResolution {
-    public bool Advance;
-    public bool ExitGrammar;
-    public RegexPoweredGrammarContext SwitchToGrammar;
-    public Token[] Tokens;
-
-    public MatchingResolution Advancing(bool v) {
-        Advance = v;
-        return this;
-    }
-
-    public MatchingResolution Exiting(bool v) {
-        ExitGrammar = v;
-        return this;
-    }
-
-    public MatchingResolution SwitchingTo(RegexPoweredGrammarContext ctx) {
-        SwitchToGrammar = ctx;
-        return this;
-    }
-
-    public MatchingResolution Returning(Token[] tokens) {
-        Tokens = tokens;
-        return this;
-    }
-
-    public MatchingResolution ReturningEntireMatch(TokenMatchInfo info) {
-        Tokens = new Token[] { new Token(info.MatchedTokens) };
-        return this;
-    }
-
-    public MatchingResolution ReturningEntireMatchAs<T>(TokenMatchInfo info) where T : Token, new() {
-        var t = new T();
-        t.Value = info.MatchedTokens;
-        Tokens = new Token[] { t };
-        return this;
     }
 }
