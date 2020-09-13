@@ -28,10 +28,19 @@ namespace NSDW.ShipForge.LexAST.Lexing {
 
         public TokenMatchInfo MatchToken(TokenizerContext ctx) {
             var match = pattern.Match(ctx.Input, ctx.CurrentPosition);
+            string beforeMatch;
+
+            if(!match.Success) {
+                // we see no valid tokens from now on
+                // validate the unmatched non-tokens and exit
+                beforeMatch = ctx.Input.Substring(ctx.CurrentPosition);
+                ValidateNonToken(beforeMatch);
+                return null;
+            }
 
             // we ensure there are no unexpected characters in the substring from current pos to match start
             // use case: most programming languages would skip whitespace characters
-            string beforeMatch = ctx.Input.Substring(ctx.CurrentPosition, match.Index-ctx.CurrentPosition);
+            beforeMatch = ctx.Input.Substring(ctx.CurrentPosition, match.Index-ctx.CurrentPosition);
             ValidateNonToken(beforeMatch);
 
             // find which group did the matching, map it back to the TokenMatchHandler and return
@@ -48,6 +57,7 @@ namespace NSDW.ShipForge.LexAST.Lexing {
                 }
             }
 
+            // TODO is this needed?
             var errStr = "Saw no valid tokens beyond this point: [@"+ctx.CurrentPosition+"] " + 
                 ctx.Input.Substring(ctx.CurrentPosition, ctx.Input.ClampIndex(100))+"...";
             throw new System.InvalidOperationException(errStr);

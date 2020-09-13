@@ -7,6 +7,8 @@ namespace NSDW.ShipForge.LexAST.AST {
     public class PrecedenceLevelGrammar {
         private readonly IDictionary<ASTPattern, ASTReducer> patterns;
 
+        public string Description { get; set; }
+
         public PrecedenceLevelGrammar(IDictionary<ASTPattern, ASTReducer> patterns) {
             this.patterns = patterns;
         }
@@ -25,14 +27,26 @@ namespace NSDW.ShipForge.LexAST.AST {
             return this;
         }
 
+        public PrecedenceLevelGrammar AddDescription(string d) {
+            Description = d;
+            return this;
+        }
+
         public void MatchPatterns(TokenParserContext c) {
+            int passes = 0;
+            var time = System.Diagnostics.Stopwatch.StartNew();
             try {
                 // we keep iterating until the current precedence level no longer matches anything
                 // TODO this probably should be configurable
                 bool matched = false;
                 int noInfinite = 0;
                 do {
+                    passes++;
                     noInfinite++; // TODO remove
+                    if(noInfinite > 5000) {
+                        throw new System.Exception("Infinite loop detected");
+                    }
+                    matched = false;
                     // iterate over all tokens
                     for(int i = 0; i<c.Tokens.Count; i++) {
                         // at each token, check for every known pattern
@@ -47,11 +61,12 @@ namespace NSDW.ShipForge.LexAST.AST {
                             }
                         }
                     }
-                } while(matched && noInfinite < 50000);
+                } while(matched);
             } catch(System.Exception e) {
                 System.Console.WriteLine("Exception caught! Current list state: "+string.Join(", ", c.Tokens));
                 throw;
             }
+            //System.Console.WriteLine(Description+" executed "+passes+" in "+time.ElapsedMilliseconds+"ms");
         }
     }
 

@@ -19,6 +19,9 @@ namespace NSDW.ShipForge.LexAST.Lexing{
                     i++;
                     
                     var match = ctx.Lexers.Peek().MatchToken(ctx);
+                    if(match == null) {
+                        break;
+                    }
                     match.Handler.Invoke(match, ctx);
 
                 } catch(System.Exception e) {

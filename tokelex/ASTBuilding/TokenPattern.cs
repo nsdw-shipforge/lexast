@@ -5,16 +5,67 @@ namespace NSDW.ShipForge.LexAST.AST {
     using ASTPattern = System.Func<TokenPatternMatchInfo, bool>;
     using ASTReducer = System.Action<TokenPatternMatchInfo, TokenParserContext>;
     public static class TokenPatternUtil {
+        public static bool InvalidPosition(TokenPatternMatchInfo info, int pos) {
+            return pos >= info.Tokens.Count || pos < 0;
+        }
         public static bool CurrentElementIs<T>(TokenPatternMatchInfo info) {
+            if(InvalidPosition(info, info.Position)) {
+                return false;
+            }
             return info.Tokens[info.Position] is T;
         }
 
-        public static bool NextElementIs<T>(TokenPatternMatchInfo info) {
-            if(info.Position+1 >= info.Tokens.Count) {
+        public static bool NextElementIs<T>(TokenPatternMatchInfo info, int offset = 1) {
+            if(InvalidPosition(info, info.Position+offset)) {
                 return false;
             }
-            return info.Tokens[info.Position+1] is T;
+            return info.Tokens[info.Position+offset] is T;
         }
+
+        public static bool PreviousElementIs<T>(TokenPatternMatchInfo info) {
+            if(InvalidPosition(info, info.Position-1)) {
+                return false;
+            }
+            return info.Tokens[info.Position-1] is T;
+        }
+
+        public static bool MatchBracketedBlock<TOpen, TClose>(TokenPatternMatchInfo info, System.Func<int, bool> acceptCount) {
+            int? finalInnerTokenCounter = CountBracketedTokens<TOpen, TClose> (info);
+            if(finalInnerTokenCounter == null) {
+                return false;
+            }
+            return acceptCount((int)finalInnerTokenCounter);
+        }
+
+        /// <summary>
+        /// Counts the number of tokens within brackets defined as TOpen, TClose
+        /// If the current token is not a TOpen, or if there is no matching TClose, this method returns null
+        /// </summary>
+        public static int? CountBracketedTokens<TOpen, TClose>(TokenPatternMatchInfo info) {
+            if(info.Tokens[info.Position] is TOpen is false) {
+                return null;
+            }
+            int i;
+            int nestingLevel = 0;
+            int innerTokenCounter = 0;
+            int? finalInnerTokenCounter = null;
+            for(i = info.Position + 1; i<info.Tokens.Count; i++) {
+                var currentToken = info.Tokens[i];
+                if(currentToken is TClose) {
+                    if(nestingLevel == 0) {
+                        finalInnerTokenCounter = innerTokenCounter;
+                        break;
+                    } else {
+                        nestingLevel--;
+                    }
+                }
+                if(currentToken is TOpen) {
+                    nestingLevel++;
+                }
+                innerTokenCounter++;
+            }
+            return finalInnerTokenCounter;
+        } 
 
         public static bool CurrentElementMatches(TokenPatternMatchInfo info, System.Func<object, bool> predicate) {
             return predicate(info.Tokens[info.Position]);
@@ -57,6 +108,15 @@ namespace NSDW.ShipForge.LexAST.AST {
             return info.Tokens[info.Position+1] as T;
         }
 
+        public static System.Tuple<ASTPattern, ASTReducer> SingleAroundMatcherConsumer<TVictimL, TAnchor, TVictimR>(System.Func<TVictimL, TAnchor, TVictimR, object> handler) 
+            where TAnchor: class 
+            where TVictimL: class
+            where TVictimR: class {
+            return new System.Tuple<ASTPattern, ASTReducer>(
+                info => PreviousElementIs<TVictimL>(info) && CurrentElementIs<TAnchor>(info) && NextElementIs<TVictimR>(info), 
+                SingleAroundConsumer<TVictimL, TAnchor, TVictimR>(handler)
+            );
+        }
         public static System.Tuple<ASTPattern, ASTReducer> SingleNextMatcherConsumer<TAnchor, TVictim>(System.Func<TAnchor, TVictim, object> handler) 
             where TAnchor: class 
             where TVictim: class {
@@ -82,6 +142,24 @@ namespace NSDW.ShipForge.LexAST.AST {
             };
         }
 
+        public static ASTReducer SingleAroundConsumer<TVictimL, TAnchor, TVictimR> (System.Func<TVictimL, TAnchor, TVictimR, object> handler)  
+            where TAnchor: class 
+            where TVictimL: class
+            where TVictimR: class {
+            return (match, ctx) => {
+                var anchor = ctx.GetCurrent(match) as TAnchor;
+                var victimLeft = match.Tokens[match.Position-1] as TVictimL;
+                var victimRight = match.Tokens[match.Position+1] as TVictimR;
+
+                object rv = anchor;
+                if(handler != null) {
+                    rv = handler(victimLeft, anchor, victimRight);
+                }
+                
+                match.Tokens.ReplaceRange(match.Position-1, match.Position+1, new object[] {rv});
+            };
+        }
+
         public static System.Tuple<ASTPattern, ASTReducer> FilterOutType<T>()  
             where T: class {
             return new System.Tuple<ASTPattern, ASTReducer>(
@@ -89,5 +167,31 @@ namespace NSDW.ShipForge.LexAST.AST {
                 (match, ctx) => match.Tokens.ReplaceRange(match.Position, match.Position, new object[] {})
             );
         }
+
+        public static System.Tuple<ASTPattern, ASTReducer> ConvertingEach<TFrom, TInto> (System.Func<TFrom, TInto> strategy) 
+            where TFrom: class 
+            where TInto: class {
+            return new System.Tuple<ASTPattern, ASTReducer>(
+                info => CurrentElementIs<TFrom>(info), 
+                (match, ctx) => {
+                    var from = ctx.GetCurrent(match) as TFrom;
+                    var into = strategy(from);
+                    match.Tokens.ReplaceRange(match.Position, match.Position, new object[] {into});
+                });
+        }
+
+        public static System.Tuple<ASTPattern, ASTReducer> BracketsMatcherConsumer<TOpeningBracket, TClosingBracket>(System.Func<TokenPatternMatchInfo, TokenList, object[]> handler) 
+            where TOpeningBracket: class
+            where TClosingBracket: class {
+            return new System.Tuple<ASTPattern, ASTReducer>(
+                info => MatchBracketedBlock<TOpeningBracket, TClosingBracket>(info, amount => amount>=0), 
+                (match, ctx) => {
+                    var innerCount = CountBracketedTokens<TOpeningBracket, TClosingBracket>(match);
+                    var bracketedSublist = match.Tokens.GetSublist(match.Position+1, match.Position + (int)innerCount);
+                    var into = handler(match, bracketedSublist);
+                    match.Tokens.ReplaceRange(match.Position, match.Position+(int)innerCount+1, into);
+                }
+            );
+        }
     }
-    }
+}
