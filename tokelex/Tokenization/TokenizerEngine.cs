@@ -8,7 +8,7 @@ namespace NSDW.ShipForge.LexAST.Lexing{
         TokenizerContext ctx;
         public TokenizerEngine(RegexPoweredGrammarContext startingGrammarCtx) {
             ctx = new TokenizerContext();
-            ctx.Lexers.Push(startingGrammarCtx);
+            ctx.Lexers.Push(new GrammarContextState(startingGrammarCtx));
         }
         public Token[] Tokenize(string input) {
             ctx.Input = input;
@@ -18,14 +18,14 @@ namespace NSDW.ShipForge.LexAST.Lexing{
                 try {
                     i++;
                     
-                    var match = ctx.Lexers.Peek().MatchToken(ctx);
+                    var match = ctx.Lexers.Peek().Grammar.MatchToken(ctx);
                     if(match == null) {
                         break;
                     }
                     match.Handler.Invoke(match, ctx);
 
                 } catch(System.Exception e) {
-                    throw new TokenizationException(e, ctx, ctx.Lexers.Peek().Description);
+                    throw new TokenizationException(e, ctx, ctx.Lexers.Peek().Grammar.Description);
                 }
             }
 

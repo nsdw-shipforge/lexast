@@ -29,8 +29,8 @@ namespace NSDW.ShipForge.LexAST.AST {
             return info.Tokens[info.Position-1] is T;
         }
 
-        public static bool MatchBracketedBlock<TOpen, TClose>(TokenPatternMatchInfo info, System.Func<int, bool> acceptCount) {
-            int? finalInnerTokenCounter = CountBracketedTokens<TOpen, TClose> (info);
+        public static bool MatchBracketedBlock<TOpen, TClose>(TokenPatternMatchInfo info, System.Func<int, bool> acceptCount, int offset) {
+            int? finalInnerTokenCounter = CountBracketedTokens<TOpen, TClose> (info, offset);
             if(finalInnerTokenCounter == null) {
                 return false;
             }
@@ -41,15 +41,17 @@ namespace NSDW.ShipForge.LexAST.AST {
         /// Counts the number of tokens within brackets defined as TOpen, TClose
         /// If the current token is not a TOpen, or if there is no matching TClose, this method returns null
         /// </summary>
-        public static int? CountBracketedTokens<TOpen, TClose>(TokenPatternMatchInfo info) {
-            if(info.Tokens[info.Position] is TOpen is false) {
+        public static int? CountBracketedTokens<TOpen, TClose>(TokenPatternMatchInfo info, int offset) {
+            int pos = info.Position + offset;
+            if(pos >= info.Tokens.Count) { return null; }
+            if(info.Tokens[pos] is TOpen is false) {
                 return null;
             }
             int i;
             int nestingLevel = 0;
             int innerTokenCounter = 0;
             int? finalInnerTokenCounter = null;
-            for(i = info.Position + 1; i<info.Tokens.Count; i++) {
+            for(i = pos + 1; i<info.Tokens.Count; i++) {
                 var currentToken = info.Tokens[i];
                 if(currentToken is TClose) {
                     if(nestingLevel == 0) {
@@ -180,13 +182,13 @@ namespace NSDW.ShipForge.LexAST.AST {
                 });
         }
 
-        public static System.Tuple<ASTPattern, ASTReducer> BracketsMatcherConsumer<TOpeningBracket, TClosingBracket>(System.Func<TokenPatternMatchInfo, TokenList, object[]> handler) 
+        public static System.Tuple<ASTPattern, ASTReducer> BracketsMatcherConsumer<TOpeningBracket, TClosingBracket>(System.Func<TokenPatternMatchInfo, TokenList, object[]> handler, int offset = 0) 
             where TOpeningBracket: class
             where TClosingBracket: class {
             return new System.Tuple<ASTPattern, ASTReducer>(
-                info => MatchBracketedBlock<TOpeningBracket, TClosingBracket>(info, amount => amount>=0), 
+                info => MatchBracketedBlock<TOpeningBracket, TClosingBracket>(info, amount => amount>=0, offset), 
                 (match, ctx) => {
-                    var innerCount = CountBracketedTokens<TOpeningBracket, TClosingBracket>(match);
+                    var innerCount = CountBracketedTokens<TOpeningBracket, TClosingBracket>(match, offset);
                     var bracketedSublist = match.Tokens.GetSublist(match.Position+1, match.Position + (int)innerCount);
                     var into = handler(match, bracketedSublist);
                     match.Tokens.ReplaceRange(match.Position, match.Position+(int)innerCount+1, into);
